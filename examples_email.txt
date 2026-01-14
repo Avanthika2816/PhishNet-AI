@@ -1,0 +1,146 @@
+Action: file_editor view /app/phishing_detector/example_emails.txt
+Observation: /app/phishing_detector/example_emails.txt:
+1|# Example Phishing Emails for Testing
+2|
+3|## Example 1: Bank Phishing
+4|Subject: URGENT: Your Account Will Be Closed!
+5|
+6|Body:
+7|Dear Valued Customer,
+8|
+9|We have detected suspicious activity on your account. Your account will be permanently closed within 24 hours unless you verify your identity immediately.
+10|
+11|Click here to verify now: http://secure-bank-verify.suspicious-link.com
+12|
+13|You must provide:
+14|- Full name
+15|- Social Security Number
+16|- Credit card details
+17|- Online banking password
+18|
+19|Failure to comply will result in permanent account suspension and legal action.
+20|
+21|This is your final warning.
+22|
+23|Security Department
+24|Your Bank
+25|
+26|---
+27|
+28|## Example 2: Prize/Lottery Phishing
+29|Subject: Congratulations! You've Won $1,000,000!
+30|
+31|Body:
+32|Dear Lucky Winner,
+33|
+34|You have been selected as the winner of our international lottery! You've won ONE MILLION DOLLARS!
+35|
+36|To claim your prize, you must:
+37|1. Pay a processing fee of $500
+38|2. Provide your bank account details
+39|3. Send copies of your ID and social security card
+40|4. Act within 48 hours or prize will be forfeited
+41|
+42|Click here to claim: http://lottery-claim-now.xyz
+43|
+44|Don't miss this once-in-a-lifetime opportunity!
+45|
+46|International Prize Committee
+47|
+48|---
+49|
+50|## Example 3: IT/Tech Support Phishing
+51|Subject: Security Alert: Unusual Activity Detected
+52|
+53|Body:
+54|Dear User,
+55|
+56|We have detected multiple failed login attempts to your email account from an unknown location in Russia.
+57|
+58|Your account has been temporarily locked for security reasons.
+59|
+60|To unlock your account immediately:
+61|1. Click this link: http://email-security-verify.com
+62|2. Enter your current password
+63|3. Create a new password
+64|4. Verify your phone number and credit card
+65|
+66|If you do not complete this within 2 hours, your account and all emails will be permanently deleted.
+67|
+68|IT Security Team
+69|Do Not Reply To This Email
+70|
+71|---
+72|
+73|## Example 4: Package Delivery Phishing
+74|Subject: Your Package Delivery Failed - Action Required
+75|
+76|Body:
+77|Dear Customer,
+78|
+79|Your package delivery attempt failed. Package #HD7392-X is being held at our facility.
+80|
+81|To reschedule delivery, you must:
+82|- Pay a redelivery fee of $3.95
+83|- Confirm your address and phone number
+84|- Provide credit card information
+85|
+86|Click here to reschedule: http://parcel-delivery-update.com
+87|
+88|Your package will be returned to sender if not claimed within 24 hours.
+89|
+90|Shipping Department
+91|
+92|---
+93|
+94|## Example 5: HR/Payroll Phishing
+95|Subject: Important: Update Your Direct Deposit Information
+96|
+97|Body:
+98|Dear Employee,
+99|
+100|Our payroll system is being upgraded. You must update your direct deposit information immediately or your next paycheck will be delayed.
+101|
+102|Required information:
+103|- Bank name and routing number
+104|- Account number
+105|- Social Security Number
+106|- Employee ID and password
+107|
+108|Complete the form here: http://company-payroll-update.net
+109|
+110|Deadline: End of business day today
+111|
+112|Failure to update will result in payment delays and possible account suspension.
+113|
+114|HR Department
+115|
+116|---
+117|
+118|## Example 6: Legitimate Email (for comparison)
+119|Subject: Your Monthly Statement is Ready
+120|
+121|Body:
+122|Dear John Smith,
+123|
+124|Your monthly account statement for December 2024 is now available.
+125|
+126|To view your statement:
+127|1. Log in to your account at https://www.yourbank.com
+128|2. Navigate to Statements & Documents
+129|3. Select December 2024
+130|
+131|For security reasons, we will never ask you to:
+132|- Provide your password via email
+133|- Click on links to verify account information
+134|- Share your full Social Security Number
+135|
+136|If you have questions, please call us at 1-800-555-0123 or visit your local branch.
+137|
+138|Thank you for banking with us.
+139|
+140|Your Bank Team
+141|
+142|This email was sent to johnsmith@email.com
+143|Your Bank, 123 Main Street, City, ST 12345
+144|
