@@ -4,7 +4,120 @@ from dotenv import load_dotenv
 import os
 import json
 from datetime import datetime
+import email
+from email import policy
+import imaplib
+from email.header import decode_header
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+from attachment_analyzer import AttachmentAnalyzer, correlate_risks
+
+def fetch_recent_emails(imap_server, imap_port, email_user, email_pass, limit=5):
+    try:
+        # Sanitize credentials (remove spaces from app password, strip whitespace from user)
+        email_user = email_user.strip()
+        email_pass = email_pass.strip().replace(" ", "")
+        
+        mail = imaplib.IMAP4_SSL(imap_server, int(imap_port))
+        mail.login(email_user, email_pass)
+        mail.select("inbox")
+        status, messages = mail.search(None, "ALL")
+        if status != 'OK':
+            raise Exception("Failed to search emails")
+        email_ids = messages[0].split()
+        latest_email_ids = email_ids[-limit:]
+        
+        emails_data = []
+        for e_id in reversed(latest_email_ids):
+            res, msg_data = mail.fetch(e_id, "(RFC822)")
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1], policy=policy.default)
+                    subject = msg['subject'] or "No Subject"
+                    date_str = msg.get('Date', '')
+                    
+                    body = ""
+                    body_part = msg.get_body(preferencelist=('plain', 'html'))
+                    if body_part:
+                        body = body_part.get_content()
+                    else:
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                if part.get_content_type() == 'text/plain':
+                                    try:
+                                        body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='replace')
+                                    except:
+                                        pass
+                                    break
+                        else:
+                            try:
+                                body = msg.get_payload(decode=True).decode(msg.get_content_charset() or 'utf-8', errors='replace')
+                            except:
+                                pass
+                    
+                    attachments = []
+                    for part in msg.iter_attachments():
+                        filename = part.get_filename()
+                        if filename:
+                            content = part.get_payload(decode=True)
+                            attachments.append({"name": filename, "bytes": content})
+                    
+                    from_header = msg.get('From', 'Unknown Sender')
+                    to_header = msg.get('To', 'Unknown Recipient')
+                    
+                    emails_data.append({
+                        "id": e_id.decode(),
+                        "subject": subject,
+                        "from": from_header,
+                        "to": to_header,
+                        "body": body,
+                        "date": date_str,
+                        "attachments": attachments
+                    })
+        mail.logout()
+        return True, emails_data
+    except Exception as e:
+        return False, str(e)
+
+def save_gmail_credentials(email_user, email_pass):
+    env_path = ".env"
+    lines = []
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            lines = f.readlines()
+            
+    # Remove existing GMAIL keys
+    lines = [line for line in lines if not line.strip().startswith("GMAIL_USER=") and not line.strip().startswith("GMAIL_APP_PASSWORD=")]
+    
+    # Add new keys if not empty
+    if email_user:
+        lines.append(f"GMAIL_USER={email_user}\n")
+    if email_pass:
+        lines.append(f"GMAIL_APP_PASSWORD={email_pass}\n")
+        
+    with open(env_path, "w") as f:
+        f.writelines(lines)
+    
+    load_dotenv(override=True)
+
+def show_imap_error_help(error_msg):
+    st.error(f"❌ Failed to Connect: {error_msg}")
+    
+    # Check for common authentication or connection failures
+    if "authenticationfailed" in error_msg.lower() or "login failed" in error_msg.lower() or "credential" in error_msg.lower():
+        st.warning("""
+        ### 🔍 Troubleshooting Credentials Issues:
+        
+        1. **Enable IMAP in Gmail Settings (CRITICAL)**:
+           - Go to **[Gmail settings in browser](https://mail.google.com/mail/u/0/#settings/fwdandimap)**.
+           - Under the **"Forwarding and POP/IMAP"** tab, make sure **"Enable IMAP"** is selected.
+           - Click **"Save Changes"** at the bottom of the page.
+        
+        2. **App Password Requirement**:
+           - You **cannot** use your normal Gmail login password. You must generate a 16-character **App Password** from your Google account. See the guide below!
+        
+        3. **2-Step Verification**:
+           - Ensure that **2-Step Verification** is turned on in your Google Account security settings, otherwise App Passwords won't be available.
+        """)
 
 # Load environment variables
 load_dotenv()
@@ -20,7 +133,7 @@ st.set_page_config(
 # Custom CSS for dark cybersecurity theme
 st.markdown("""
     <style>
-    |    /* Main background */
+    /* Main background */
     .stApp {
         background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
     }
@@ -114,7 +227,7 @@ st.markdown("""
     /* Code blocks */
     code {
         background-color: #0d1117 !important;
-        color: #00ff9f !important
+        color: #00ff9f !important;
         padding: 2px 6px;
         border-radius: 3px;
     }
@@ -125,7 +238,7 @@ st.markdown("""
 if 'analysis_history' not in st.session_state:
     st.session_state.analysis_history = []
 
-async def analyze_phishing_email(subject, body):
+async def analyze_phishing_email(subject, body, sender="Unknown Sender"):
     """
     Analyze email using Claude Sonnet AI to detect phishing attempts
     """
@@ -138,6 +251,7 @@ async def analyze_phishing_email(subject, body):
     analysis_prompt = f"""
 You are an expert cybersecurity analyst specializing in phishing email detection. Analyze the following email and provide a comprehensive security assessment.
 
+EMAIL SENDER (FROM): {sender}
 EMAIL SUBJECT: {subject}
 
 EMAIL BODY:
@@ -248,9 +362,21 @@ def main():
         st.metric("Total Analyzed", len(st.session_state.analysis_history))
         
         if st.session_state.analysis_history:
-            phishing_count = sum(1 for a in st.session_state.analysis_history
-                                if a['classification'] == 'Phishing Email')
+            phishing_count = sum(1 for a in st.session_state.analysis_history 
+                               if a['classification'] == 'Phishing Email')
             st.metric("Phishing Detected", phishing_count)
+            
+            # EXTENDED: Attachment statistics
+            total_attachments = sum(len(a.get('attachments', [])) for a in st.session_state.analysis_history)
+            if total_attachments > 0:
+                st.metric("Attachments Analyzed", total_attachments)
+                malicious_attachments = sum(
+                    1 for a in st.session_state.analysis_history 
+                    for att in a.get('attachments', [])
+                    if att['classification'] == 'Malicious'
+                )
+                if malicious_attachments > 0:
+                    st.metric("Malicious Attachments", malicious_attachments)
         
         st.markdown("---")
         if st.button("🗑️ Clear History"):
@@ -263,68 +389,257 @@ def main():
     with col1:
         st.markdown("### 📧 Email Analysis")
         
-        # Email input form
-        with st.form("email_form"):
-            email_subject = st.text_input(
-                "Email Subject",
-                placeholder="Enter the email subject line...",
-                help="The subject line of the suspicious email"
-            )
+        input_method = st.radio("Choose Input Method", 
+            ["upload", "imap"], 
+            format_func=lambda x: "Manual / File Upload" if x == "upload" else "Connect Inbox (IMAP)",
+            horizontal=True)
             
-            email_body = st.text_area(
-                "Email Body",
-                placeholder="Paste the email body content here...",
-                height=200,
-                help="The full text content of the email"
-            )
+        target_sender = "Unknown Sender"
+        target_subject = ""
+        target_body = ""
+        target_attachments = []
+        perform_analysis = False
+        
+        if input_method == "upload":
+            eml_file = st.file_uploader("📂 Upload .eml or any file (Optional)", help="Upload an .eml to extract its contents, or any other file to analyze its text and attachments.")
+            default_subj = ""
+            default_body = ""
+            default_from = ""
+            eml_attachments = []
             
-            col_btn1, col_btn2 = st.columns([1, 3])
-            with col_btn1:
-                submit_button = st.form_submit_button("🔍 Analyze Email")
-            with col_btn2:
-                load_example = st.form_submit_button("📝 Load Example")
-        
-        # Handle example loading
-        if load_example:
-            st.session_state.example_loaded = True
-            st.rerun()
-        
-        if 'example_loaded' in st.session_state and st.session_state.example_loaded:
-            email_subject = "URGENT: Your Account Will Be Closed!"
-            email_body = """Dear Valued Customer,
+            if eml_file:
+                if eml_file.name.lower().endswith('.eml'):
+                    msg = email.message_from_bytes(eml_file.getvalue(), policy=policy.default)
+                    default_subj = msg['subject'] or ""
+                    default_from = msg['From'] or ""
+                    
+                    body_part = msg.get_body(preferencelist=('plain', 'html'))
+                    if body_part:
+                        default_body = body_part.get_content()
+                    else:
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                if part.get_content_type() == 'text/plain':
+                                    try:
+                                        default_body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='replace')
+                                    except:
+                                        pass
+                                    break
+                        else:
+                            try:
+                                default_body = msg.get_payload(decode=True).decode(msg.get_content_charset() or 'utf-8', errors='replace')
+                            except:
+                                pass
+                    
+                    for part in msg.iter_attachments():
+                        filename = part.get_filename()
+                        if filename:
+                            content = part.get_payload(decode=True)
+                            eml_attachments.append({"name": filename, "bytes": content})
+                            
+                    st.success(f"Parsed .eml file successfully. Found {len(eml_attachments)} attachment(s).")
+                else:
+                    # Not an EML file, load its raw content as the email body
+                    default_subj = f"File Analysis: {eml_file.name}"
+                    try:
+                        default_body = eml_file.getvalue().decode('utf-8', errors='replace')
+                    except:
+                        default_body = "Binary file uploaded."
+                    # Also analyze it as an attachment
+                    eml_attachments.append({"name": eml_file.name, "bytes": eml_file.getvalue()})
+                    st.success(f"Loaded {eml_file.name} for verification.")
+            
+            with st.form("email_form"):
+                email_sender = st.text_input(
+                    "Sender (From)",
+                    value=default_from if not st.session_state.get('example_loaded') else "security@yourbank-verify.com",
+                    placeholder="e.g., support@paypal.com or security@yourbank.com",
+                    help="The sender email address/name"
+                )
+                email_subject = st.text_input(
+                    "Email Subject",
+                    value=default_subj if not st.session_state.get('example_loaded') else "URGENT: Your Account Will Be Closed!",
+                    placeholder="Enter the email subject line...",
+                    help="The subject line of the suspicious email"
+                )
+                
+                email_body = st.text_area(
+                    "Email Body",
+                    value=default_body if not st.session_state.get('example_loaded') else "Dear Valued Customer,\n\nWe have detected suspicious activity on your account. Your account will be permanently closed within 24 hours unless you verify your identity immediately.\n\nClick here to verify now: http://secure-bank-verify.suspicious-link.com\n\nYou must provide:\n- Full name\n- Social Security Number\n- Credit card details\n- Online banking password\n\nFailure to comply will result in permanent account suspension and legal action.\n\nThis is your final warning.\n\nSecurity Department\nYour Bank",
+                    placeholder="Paste the email body content here...",
+                    height=200,
+                    help="The full text content of the email"
+                )
+                
+                st.markdown("---")
+                st.markdown("**📎 Extra Email Attachments (Optional)**")
+                uploaded_files = st.file_uploader(
+                    "Upload additional attachments",
+                    accept_multiple_files=True,
+                    help="Upload files to analyze for malware indicators",
+                    label_visibility="collapsed"
+                )
+                
+                col_btn1, col_btn2 = st.columns([1, 3])
+                with col_btn1:
+                    submit_button = st.form_submit_button("🔍 Analyze Email")
+                with col_btn2:
+                    load_example = st.form_submit_button("📝 Load Example")
+            
+            if load_example:
+                st.session_state.example_loaded = True
+                st.rerun()
+                
+            if 'example_loaded' in st.session_state and st.session_state.example_loaded:
+                st.session_state.example_loaded = False
+                st.info("📝 Example phishing email loaded! Click 'Analyze Email'.")
+                
+            if submit_button:
+                target_sender = email_sender
+                target_subject = email_subject
+                target_body = email_body
+                target_attachments = eml_attachments.copy()
+                if uploaded_files:
+                    for uf in uploaded_files:
+                        target_attachments.append({"name": uf.name, "bytes": uf.read()})
+                perform_analysis = True
+                
+        else:
+            # Read saved Gmail credentials
+            gmail_user_env = os.getenv('GMAIL_USER', '')
+            gmail_pass_env = os.getenv('GMAIL_APP_PASSWORD', '')
+            
+            st.info("🔌 Connect to your email inbox directly using IMAP to fetch real emails without copy-pasting.")
+            
+            # If credentials exist, show Quick Connect option
+            if gmail_user_env and gmail_pass_env:
+                st.success(f"⚡ Saved Gmail profile detected: **{gmail_user_env}**")
+                col_qc1, col_qc2 = st.columns(2)
+                with col_qc1:
+                    limit_qc = st.slider("Emails to fetch", 1, 20, 5, key="limit_qc")
+                    quick_connect = st.button("📥 Direct Connect & Fetch", type="primary", use_container_width=True)
+                with col_qc2:
+                    st.write("") # Spacer
+                    st.write("") # Spacer
+                    disconnect = st.button("❌ Remove Saved Credentials", use_container_width=True)
+                
+                if disconnect:
+                    save_gmail_credentials("", "")
+                    st.success("Credentials removed. Rerunning...")
+                    st.rerun()
+                
+                if quick_connect:
+                    with st.spinner("Connecting securely to Gmail..."):
+                        success, data = fetch_recent_emails("imap.gmail.com", "993", gmail_user_env, gmail_pass_env, limit_qc)
+                        if success:
+                            st.session_state.fetched_emails = data
+                            st.success(f"Successfully fetched {len(data)} emails!")
+                        else:
+                            show_imap_error_help(data)
+                            
+                st.markdown("---")
+            
+            # Detailed manual credentials / configuration form
+            with st.expander("⚙️ Connection Settings / New Account Setup", expanded=not (gmail_user_env and gmail_pass_env)):
+                with st.form("imap_auth"):
+                    col_imap1, col_imap2 = st.columns(2)
+                    with col_imap1:
+                        imap_server = st.text_input("IMAP Server", value="imap.gmail.com")
+                        email_user = st.text_input("Email Address", value=gmail_user_env)
+                    with col_imap2:
+                        imap_port = st.text_input("IMAP Port", value="993")
+                        email_pass = st.text_input("App Password", value=gmail_pass_env, type="password", help="Use an App Password instead of your real password for security.")
+                    
+                    limit = st.slider("Emails to fetch", 1, 20, 5, key="limit_form")
+                    save_creds = st.checkbox("💾 Remember credentials in .env file", value=True)
+                    connect_btn = st.form_submit_button("🔌 Connect & Fetch")
+                    
+                if connect_btn:
+                    if not email_user or not email_pass:
+                        st.error("Please provide email and app password.")
+                    else:
+                        with st.spinner("Connecting to inbox..."):
+                            success, data = fetch_recent_emails(imap_server, imap_port, email_user, email_pass, limit)
+                            if success:
+                                st.session_state.fetched_emails = data
+                                st.success(f"Successfully fetched {len(data)} emails!")
+                                if save_creds:
+                                    save_gmail_credentials(email_user, email_pass)
+                                    st.info("Credentials saved securely to .env file.")
+                            else:
+                                show_imap_error_help(data)
 
-We have detected suspicious activity on your account. Your account will be permanently closed within 24 hours unless you verify your identity immediately.
+            # Step-by-step Gmail configuration guide
+            with st.expander("📖 Gmail App Password Configuration Guide (Required)"):
+                st.markdown("""
+                ### How to connect your Gmail Account:
+                Because Google disabled 'Less Secure Apps', you **cannot** use your regular Gmail password. You must generate an **App Password**:
+                
+                1. Go to your **[Google Account Security Settings](https://myaccount.google.com/security)**.
+                2. Make sure **2-Step Verification** is turned **ON** for your account.
+                3. Click on **2-Step Verification**, scroll to the bottom, and select **App passwords** (or search "App passwords" in the search bar at the top).
+                4. Enter a name (e.g., `Phishing Detector`) and click **Create**.
+                5. Google will display a **16-character code** (e.g., `abcd efgh ijkl mnop`).
+                6. Copy this 16-character code and paste it into the **App Password** field in this app.
+                7. Check the **Remember credentials** option so you only have to do this once!
+                """)
+                
+            if st.session_state.get('fetched_emails'):
+                st.markdown("### 📥 Select an Email")
+                email_opts = {f"{em['date']} - {em['subject'][:30]}": em for em in st.session_state.fetched_emails}
+                selected_em_label = st.selectbox("Choose an email to analyze", list(email_opts.keys()))
+                
+                selected_em = email_opts[selected_em_label]
+                st.text_input("Sender (From)", value=selected_em.get('from', 'Unknown Sender'), disabled=True)
+                st.text_input("Subject Preview", value=selected_em['subject'], disabled=True)
+                st.text_area("Body Preview", value=selected_em['body'], height=150, disabled=True)
+                if selected_em['attachments']:
+                    st.info(f"📎 Has {len(selected_em['attachments'])} attachment(s)")
+                
+                if st.button("🔍 Analyze Selected Inbox Email", type="primary"):
+                    target_sender = selected_em.get('from', 'Unknown Sender')
+                    target_subject = selected_em['subject']
+                    target_body = selected_em['body']
+                    target_attachments = selected_em['attachments']
+                    perform_analysis = True
 
-Click here to verify now: http://secure-bank-verify.suspicious-link.com
-
-You must provide:
-- Full name
-- Social Security Number
-- Credit card details
-- Online banking password
-
-Failure to comply will result in permanent account suspension and legal action.
-
-This is your final warning.
-
-Security Department
-Your Bank"""
-            st.session_state.example_loaded = False
-            st.info("📝 Example phishing email loaded! Click 'Analyze Email' to detect threats.")
-        
         # Analyze email
-        if submit_button:
-            if not email_subject or not email_body:
+        if perform_analysis:
+            if not target_subject or not target_body:
                 st.error("⚠️ Please provide both email subject and body.")
             else:
                 with st.spinner("🔄 Analyzing email with AI... This may take a few seconds."):
                     try:
                         # Run async analysis
-                        result = asyncio.run(analyze_phishing_email(email_subject, email_body))
+                        result = asyncio.run(analyze_phishing_email(target_subject, target_body, target_sender))
+                        
+                        # EXTENDED: Analyze attachments if provided
+                        attachment_results = []
+                        if target_attachments:
+                            st.info(f"📎 Analyzing {len(target_attachments)} attachment(s)...")
+                            analyzer = AttachmentAnalyzer()
+                            
+                            for att in target_attachments:
+                                attachment_result = analyzer.analyze_attachment(
+                                    att["bytes"], 
+                                    att["name"]
+                                )
+                                attachment_results.append(attachment_result)
+                        
+                        # EXTENDED: Correlate risks if attachments present
+                        if attachment_results:
+                            unified_risk = correlate_risks(
+                                result['risk_score'],
+                                attachment_results
+                            )
+                        else:
+                            unified_risk = None
                         
                         # Add to history
                         result['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        result['subject'] = email_subject
+                        result['subject'] = target_subject
+                        result['attachments'] = attachment_results  # EXTENDED: Store attachment results
+                        result['unified_risk'] = unified_risk  # EXTENDED: Store unified risk
                         st.session_state.analysis_history.insert(0, result)
                         
                         # Display results
@@ -366,6 +681,80 @@ Your Bank"""
                         # Explanation
                         st.markdown("### 💡 Analysis Explanation")
                         st.info(result['explanation'])
+                        
+                        # EXTENDED: Display Attachment Analysis Results
+                        if attachment_results:
+                            st.markdown("---")
+                            st.markdown("## 📎 Attachment Analysis Results")
+                            
+                            for idx, att_result in enumerate(attachment_results, 1):
+                                with st.expander(f"📄 {att_result['filename']} - {att_result['classification']} ({att_result['risk_score']}/100)", expanded=True):
+                                    
+                                    # Attachment risk visualization
+                                    att_color, att_status = display_risk_score(att_result['risk_score'])
+                                    
+                                    col_a1, col_a2, col_a3 = st.columns(3)
+                                    with col_a1:
+                                        st.metric("Attachment Risk", f"{att_result['risk_score']}/100")
+                                    with col_a2:
+                                        st.markdown(f"<h4 style='color: {att_color};'>{att_status}</h4>", unsafe_allow_html=True)
+                                    with col_a3:
+                                        st.progress(att_result['risk_score'] / 100)
+                                    
+                                    # Risk indicators
+                                    if att_result['risk_indicators']:
+                                        st.markdown("**🚨 Risk Indicators:**")
+                                        for indicator in att_result['risk_indicators']:
+                                            st.markdown(f"• {indicator}")
+                                    else:
+                                        st.success("✅ No significant risk indicators detected")
+                                    
+                                    # Technical details
+                                    st.markdown("**🔍 Technical Details:**")
+                                    st.markdown(f"• **File Hash (SHA-256):** `{att_result['hash'][:32]}...`")
+                                    st.markdown(f"• **File Size:** {att_result['metadata']['size_mb']} MB")
+                                    st.markdown(f"• **MIME Type:** {att_result['metadata']['mime_type']}")
+                                    st.markdown(f"• **Extension:** {att_result['metadata']['extension']}")
+                                    st.markdown(f"• **Entropy:** {att_result['static_analysis']['entropy']}/8.0")
+                                    
+                                    # Static analysis summary
+                                    static = att_result['static_analysis']
+                                    st.markdown("**⚙️ Static Analysis:**")
+                                    st.markdown(f"• Extension Mismatch: {'⚠️ Yes' if static['extension_mismatch'] else '✅ No'}")
+                                    st.markdown(f"• Macro Detected: {'⚠️ Yes' if static['macro_detected'] else '✅ No'}")
+                                    st.markdown(f"• Embedded Scripts: {'⚠️ Yes' if static['embedded_script'] else '✅ No'}")
+                                    st.markdown(f"• Double Archive: {'⚠️ Yes' if static['double_archive'] else '✅ No'}")
+                            
+                            # EXTENDED: Unified Threat Assessment
+                            if unified_risk:
+                                st.markdown("---")
+                                st.markdown("## ⚡ Unified Threat Assessment")
+                                
+                                unified_color = "#ff4444" if unified_risk['unified_threat_score'] >= 70 else \
+                                              "#ffaa00" if unified_risk['unified_threat_score'] >= 40 else "#00ff9f"
+                                
+                                st.markdown(f"""
+                                    <div style='background-color: rgba(255,68,68,0.1); padding: 20px; border-radius: 10px; border-left: 4px solid {unified_color};'>
+                                        <h3 style='color: {unified_color};'>{unified_risk['overall_classification']}</h3>
+                                        <p style='color: #00d4ff;'><strong>Unified Threat Score: {unified_risk['unified_threat_score']}/100</strong></p>
+                                        <p style='color: #00ff9f;'>{unified_risk['threat_correlation']}</p>
+                                    </div>
+                                """, unsafe_allow_html=True)
+                                
+                                col_u1, col_u2, col_u3 = st.columns(3)
+                                with col_u1:
+                                    st.metric("Email Risk", f"{unified_risk['email_risk']}/100")
+                                with col_u2:
+                                    st.metric("Avg Attachment Risk", f"{unified_risk['attachment_avg_risk']}/100")
+                                with col_u3:
+                                    st.metric("Max Attachment Risk", f"{unified_risk['attachment_max_risk']}/100")
+                                
+                                st.markdown(f"**📊 Analysis Summary:**")
+                                st.markdown(f"• Email content risk: {unified_risk['email_risk']}/100")
+                                st.markdown(f"• Attachments analyzed: {unified_risk['attachment_count']}")
+                                st.markdown(f"• Average attachment risk: {unified_risk['attachment_avg_risk']}/100")
+                                st.markdown(f"• Highest attachment risk: {unified_risk['attachment_max_risk']}/100")
+                                st.markdown(f"• **Final unified score: {unified_risk['unified_threat_score']}/100**")
                         
                         # SOC Report
                         with st.expander("📄 View SOC Analysis Report", expanded=False):
@@ -414,15 +803,53 @@ Your Bank"""
         - Security breach claims
         """)
         
+        # EXTENDED: Attachment risk indicators
+        st.markdown("---")
+        st.markdown("### 📎 Attachment Risk Indicators")
+        st.markdown("""
+        **Common Malware Indicators:**
+        
+        🔴 **Dangerous Extensions**
+        - .exe, .dll, .bat, .cmd
+        - .scr, .vbs, .js
+        - .ps1, .msi, .hta
+        
+        🔴 **Document Threats**
+        - Macros in Office files
+        - Embedded scripts in PDFs
+        - Password-protected archives
+        
+        🔴 **Obfuscation Techniques**
+        - High entropy (encryption)
+        - Double extensions (.pdf.exe)
+        - Nested archives (ZIP in ZIP)
+        - Unicode tricks in filename
+        """)
+        
         # Recent history
         if st.session_state.analysis_history:
             st.markdown("---")
             st.markdown("### 🕐 Recent Analysis")
             for i, analysis in enumerate(st.session_state.analysis_history[:3]):
-                with st.expander(f"{analysis['subject'][:30]}..."):
+                attachment_count = len(analysis.get('attachments', []))
+                title_suffix = f" | {attachment_count} attachment(s)" if attachment_count > 0 else ""
+                
+                with st.expander(f"{analysis['subject'][:30]}...{title_suffix}"):
                     st.markdown(f"**Classification:** {analysis['classification']}")
                     st.markdown(f"**Risk Score:** {analysis['risk_score']}/100")
+                    
+                    # EXTENDED: Show unified risk if available
+                    if analysis.get('unified_risk'):
+                        st.markdown(f"**Unified Threat:** {analysis['unified_risk']['unified_threat_score']}/100")
+                    
+                    # EXTENDED: Show attachment summary
+                    if attachment_count > 0:
+                        st.markdown(f"**Attachments:** {attachment_count}")
+                        malicious = sum(1 for a in analysis['attachments'] if a['classification'] == 'Malicious')
+                        if malicious > 0:
+                            st.markdown(f"⚠️ {malicious} malicious attachment(s)")
+                    
                     st.markdown(f"**Time:** {analysis['timestamp']}")
 
 if __name__ == "__main__":
-            main()
+    main()
