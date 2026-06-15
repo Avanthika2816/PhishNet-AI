@@ -8,8 +8,23 @@ import email
 from email import policy
 import imaplib
 from email.header import decode_header
+
+# Programmatically install emergentintegrations if it is not installed
+try:
+    import emergentintegrations
+except ImportError:
+    import subprocess
+    import sys
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install", 
+        "emergentintegrations", 
+        "--extra-index-url", "https://d33sy5i8bnduwe.cloudfront.net/simple/"
+    ])
+    import emergentintegrations
+
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from attachment_analyzer import AttachmentAnalyzer, correlate_risks
+
 
 def fetch_recent_emails(imap_server, imap_port, email_user, email_pass, limit=5):
     try:

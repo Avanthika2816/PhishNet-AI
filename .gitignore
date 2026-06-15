@@ -1,8 +1,18 @@
-#Virtual environment 
-venv/
+# Next.js
+.next/
+out/
+node_modules/
+
+# Env files
 .env
-#Python cache
+.env.local
+.env.production
+
+# Python / Streamlit (old files kept for reference)
+venv/
+.venv/
 __pycache__/
-*.pyc 
-#OS files
+*.pyc
+
+# OS files
 .DS_Store
