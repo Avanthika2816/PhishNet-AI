@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 const PRESET_SCENARIOS = {
   '🏦 Bank Account Freeze': {
     sender: 'security@alert-verify-chase.com',
     subject: 'URGENT: Unauthorized Account Access Detected - Immediate Verification Required',
+    tag: 'Credential Theft',
+    severity: 'Critical',
     body: `Dear Valued Customer,
 
 We have detected multiple suspicious login attempts on your online banking account from an unrecognized IP address in Moscow, Russia.
@@ -29,6 +31,8 @@ Incident Reference: #CH-994827-SEC`
   '💼 CEO Wire Transfer (BEC)': {
     sender: 'ceo.office@exec-corp-direct.com',
     subject: 'STRICTLY CONFIDENTIAL: Immediate Acquisition Wire Transfer Required',
+    tag: 'Executive Impersonation',
+    severity: 'High',
     body: `Hi,
 
 I am currently in an all-day confidential board meeting finalizing our new strategic vendor acquisition. I need you to execute an urgent international wire transfer of $48,500.00 right now before banking cut-off.
@@ -50,6 +54,8 @@ Chief Executive Officer`
   '📦 FedEx Delivery Scam': {
     sender: 'tracking-update@fedex-courier-portal.net',
     subject: 'Delivery Exception: Package #FX-938201 held at regional terminal',
+    tag: 'Fee Extortion',
+    severity: 'High',
     body: `Dear Customer,
 
 Your incoming shipment (Tracking #FX-938201) could not be delivered today due to an incomplete street address and an unpaid customs duty fee of $3.45 USD.
@@ -64,6 +70,8 @@ Thank you for shipping with FedEx Global Express.`
   '🎁 Crypto Lottery Winner': {
     sender: 'claims@global-bitcoin-foundation.xyz',
     subject: 'CONGRATULATIONS: You Were Selected to Receive 2.5 BTC ($165,000 USD)!',
+    tag: 'Advance Fee Fraud',
+    severity: 'High',
     body: `Dear Lucky Internet User,
 
 Your email address was selected in the International Web3 Genesis Blockchain Airdrop! You have officially won 2.50 Bitcoin (BTC), equivalent to over $165,000 USD!
@@ -81,6 +89,8 @@ Global Blockchain Lottery Foundation`
   '🔐 IT Password Expiration': {
     sender: 'itsupport@secure-corporate-sso-gateway.info',
     subject: 'IT Security Notice: Corporate SSO Password Expires in 2 Hours',
+    tag: 'Fake SSO Portal',
+    severity: 'Critical',
     body: `All Staff,
 
 Our annual enterprise password policy requires all corporate credentials to be rotated every 90 days. Your Active Directory & Office 365 password is scheduled to expire in 2 hours.
@@ -97,6 +107,8 @@ Corporate Information Security Division`
   '🏢 Legitimate Statement': {
     sender: 'notifications@chase.com',
     subject: 'Your monthly Chase account statement is ready to view',
+    tag: 'Safe Baseline',
+    severity: 'Clean',
     body: `Dear Account Holder,
 
 Your monthly electronic account statement for the period ending October 31, 2026 is now available.
@@ -114,7 +126,7 @@ JPMorgan Chase Bank, N.A. Member FDIC.`
   }
 };
 
-// Calculate Shannon Entropy of a file buffer
+// Shannon Entropy Calculation
 function calculateEntropy(byteArray) {
   if (!byteArray || byteArray.length === 0) return 0;
   const frequencies = new Array(256).fill(0);
@@ -132,7 +144,7 @@ function calculateEntropy(byteArray) {
   return parseFloat(entropy.toFixed(2));
 }
 
-// Compute SHA-256 Hex Digest in Browser
+// Client-side SHA-256 Checksum
 async function computeSha256(arrayBuffer) {
   try {
     const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
@@ -143,7 +155,7 @@ async function computeSha256(arrayBuffer) {
   }
 }
 
-// Static Heuristic File Analysis
+// Static Heuristics Triage
 function analyzeFileHeuristics(filename, byteLength, entropy) {
   const nameLower = filename.toLowerCase();
   const dangerousExts = ['.exe', '.scr', '.bat', '.cmd', '.vbs', '.js', '.ps1', '.msi', '.hta', '.jar'];
@@ -152,32 +164,27 @@ function analyzeFileHeuristics(filename, byteLength, entropy) {
   const indicators = [];
   let riskScore = 10;
 
-  // Double extension check (e.g. invoice.pdf.exe)
   const parts = nameLower.split('.');
   if (parts.length > 2) {
-    indicators.push(`Double extension detected (possible obfuscation: "${nameLower}")`);
+    indicators.push(`Double extension detected (e.g. "${nameLower}")`);
     riskScore += 45;
   }
 
-  // Dangerous extension check
   if (dangerousExts.some(ext => nameLower.endsWith(ext))) {
-    indicators.push(`High-risk executable binary extension: .${parts.pop()}`);
+    indicators.push(`Executable binary payload detected`);
     riskScore += 60;
   }
 
-  // Macro check
   if (macroExts.some(ext => nameLower.endsWith(ext))) {
-    indicators.push(`Macro-enabled Office document format capable of running embedded VBA`);
+    indicators.push(`Macro-enabled document capable of executing embedded VBA scripts`);
     riskScore += 40;
   }
 
-  // Entropy check (Packed / Encrypted payload)
   if (entropy > 7.0) {
-    indicators.push(`Unusually high entropy (${entropy}/8.0) indicating potential encryption, packing, or obfuscation`);
+    indicators.push(`High entropy (${entropy}/8.0) indicating encryption or packing`);
     riskScore += 25;
   }
 
-  // Suspicious keywords in filename
   const keywords = ['invoice', 'payment', 'wire', 'receipt', 'update', 'urgent', 'order', 'statement'];
   if (keywords.some(kw => nameLower.includes(kw))) {
     indicators.push(`Filename contains social engineering keywords`);
@@ -199,6 +206,7 @@ export default function Home() {
   const [labFiles, setLabFiles] = useState([]);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [scanningPhase, setScanningPhase] = useState('');
   const [error, setError] = useState(null);
   const [history, setHistory] = useState([]);
   const [copied, setCopied] = useState(false);
@@ -207,7 +215,7 @@ export default function Home() {
   const fileInputRef = useRef(null);
   const labInputRef = useRef(null);
 
-  // File Ingestion Handler
+  // File Upload Handler
   async function handleFileUpload(files) {
     if (!files || files.length === 0) return;
     const newAttachments = [...attachments];
@@ -220,18 +228,14 @@ export default function Home() {
       const hash = await computeSha256(buffer);
       const { riskScore, classification, indicators } = analyzeFileHeuristics(file.name, file.size, entropy);
 
-      // If EML, attempt client-side parsing
       if (file.name.toLowerCase().endsWith('.eml') || file.name.toLowerCase().endsWith('.txt')) {
         const text = new TextDecoder().decode(byteArray);
-        
-        // Simple header extraction
         const subjectMatch = text.match(/^Subject:\s*(.+)$/im);
         const fromMatch = text.match(/^From:\s*(.+)$/im);
         
         if (subjectMatch) setSubject(subjectMatch[1].trim());
         if (fromMatch) setSender(fromMatch[1].trim());
 
-        // Extract body preview (after empty line)
         const parts = text.split(/\r?\n\r?\n/);
         if (parts.length > 1) {
           setBody(parts.slice(1).join('\n\n').slice(0, 4000));
@@ -253,7 +257,7 @@ export default function Home() {
     setAttachments(newAttachments);
   }
 
-  // Standalone Lab File Upload Handler
+  // Standalone Lab Upload Handler
   async function handleLabUpload(files) {
     if (!files || files.length === 0) return;
     const newLab = [...labFiles];
@@ -284,7 +288,7 @@ export default function Home() {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   }
 
-  // Execute Threat Analysis
+  // Execute Analysis with Animated Phase Simulation
   async function executeAnalysis() {
     if (!subject.trim() && !body.trim() && attachments.length === 0) {
       setError('Please provide an email subject, body, or upload an attachment to analyze.');
@@ -294,6 +298,19 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setResult(null);
+
+    const phases = [
+      '🔍 Parsing MIME structure & SPF/DKIM authentication...',
+      '🔬 Calculating binary Shannon entropy & checking double extensions...',
+      '🧠 Correlating neural social-engineering indicators with Claude Sonnet 4.5...'
+    ];
+
+    let phaseIndex = 0;
+    setScanningPhase(phases[0]);
+    const phaseInterval = setInterval(() => {
+      phaseIndex = (phaseIndex + 1) % phases.length;
+      setScanningPhase(phases[phaseIndex]);
+    }, 900);
 
     try {
       const res = await fetch('/api/analyze', {
@@ -326,6 +343,7 @@ export default function Home() {
     } catch (err) {
       setError(err.message || 'Error executing threat analysis');
     } finally {
+      clearInterval(phaseInterval);
       setLoading(false);
     }
   }
@@ -359,7 +377,6 @@ export default function Home() {
     a.click();
   }
 
-  // Calculate stats
   const totalScanned = history.length;
   const phishingCount = history.filter(h => h.classification === 'Phishing Email').length;
   const cleanCount = totalScanned - phishingCount;
@@ -369,90 +386,113 @@ export default function Home() {
     <div className="shell">
       {/* ── HERO BANNER ── */}
       <div className="hero">
-        <div className="status-ribbon">
-          <span className="pulse-dot"></span>
-          AI SENTINEL ONLINE • CLAUDE SONNET 4.5 &amp; GEMINI DUAL ENGINE ACTIVE
+        <div className="status-badge">
+          <span className="beacon"></span>
+          NEURAL SENTINEL v3.0 • CLAUDE SONNET 4.5 &amp; GEMINI DUAL ENGINE
         </div>
-        <h1>🛡️ PhishNet AI</h1>
+        <h1 className="hero-title">
+          <span className="title-gradient">PhishNet AI</span>
+        </h1>
         <p>
-          Next-generation threat detection engine analyzing linguistic deception, social engineering vectors, and zero-day payload indicators.
+          Next-generation autonomous cybersecurity platform analyzing deceptive social-engineering vectors, zero-day payloads, and high-entropy binaries.
         </p>
       </div>
 
-      {/* ── KPI STATS ROW ── */}
+      {/* ── KPI BENTO GRID ── */}
       <div className="kpi-grid">
         <div className="kpi-card">
-          <div className="kpi-label">Total Emails Scanned</div>
-          <div className="kpi-value cyan">{totalScanned}</div>
+          <div className="kpi-header">
+            <span className="kpi-label">Total Analyzed</span>
+            <span className="kpi-icon">📊</span>
+          </div>
+          <div className="kpi-value" style={{ color: '#38bdf8' }}>{totalScanned}</div>
+          <div className="kpi-subtext">Cumulative verified emails</div>
         </div>
+
         <div className="kpi-card">
-          <div className="kpi-label">Phishing Intercepted</div>
-          <div className="kpi-value red">{phishingCount}</div>
+          <div className="kpi-header">
+            <span className="kpi-label">Phishing Quarantined</span>
+            <span className="kpi-icon">🚨</span>
+          </div>
+          <div className="kpi-value" style={{ color: '#f87171' }}>{phishingCount}</div>
+          <div className="kpi-subtext">High-confidence attack vectors</div>
         </div>
+
         <div className="kpi-card">
-          <div className="kpi-label">Malicious Payloads</div>
-          <div className="kpi-value amber">{maliciousAttachmentsCount}</div>
+          <div className="kpi-header">
+            <span className="kpi-label">Payload Artifacts</span>
+            <span className="kpi-icon">📎</span>
+          </div>
+          <div className="kpi-value" style={{ color: '#fbbf24' }}>{maliciousAttachmentsCount}</div>
+          <div className="kpi-subtext">Malicious files intercepted</div>
         </div>
+
         <div className="kpi-card">
-          <div className="kpi-label">Clean &amp; Verified</div>
-          <div className="kpi-value emerald">{cleanCount}</div>
+          <div className="kpi-header">
+            <span className="kpi-label">Verified Clean</span>
+            <span className="kpi-icon">🛡️</span>
+          </div>
+          <div className="kpi-value" style={{ color: '#34d399' }}>{cleanCount}</div>
+          <div className="kpi-subtext">Safe corporate correspondence</div>
         </div>
       </div>
 
       {/* ── TABS NAVIGATION ── */}
-      <div className="tabs-bar">
+      <div className="tabs-container">
         <button
           className={`tab-btn ${activeTab === 'scanner' ? 'active' : ''}`}
           onClick={() => setActiveTab('scanner')}
         >
-          📨 Email Threat Scanner
+          <span>📨</span> Email Threat Scanner
         </button>
         <button
           className={`tab-btn ${activeTab === 'lab' ? 'active' : ''}`}
           onClick={() => setActiveTab('lab')}
         >
-          🔬 Attachment &amp; Malware Lab
+          <span>🔬</span> Malware &amp; Attachment Lab
         </button>
         <button
           className={`tab-btn ${activeTab === 'scenarios' ? 'active' : ''}`}
           onClick={() => setActiveTab('scenarios')}
         >
-          ⚡ Attack Scenarios (1-Click)
+          <span>⚡</span> Attack Scenarios Showcase
         </button>
         <button
           className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`}
           onClick={() => setActiveTab('history')}
         >
-          📊 SOC Audit Log ({history.length})
+          <span>📊</span> SOC Incident Audit ({history.length})
         </button>
       </div>
 
-      {/* ── TAB 1: EMAIL THREAT SCANNER ── */}
+      {/* ── TAB 1: SCANNER ── */}
       {activeTab === 'scanner' && (
         <>
-          {/* Quick Scenario Chips Bar */}
-          <div className="presets-scroller">
+          {/* Preset Buttons Carousel */}
+          <div className="presets-carousel">
             {Object.keys(PRESET_SCENARIOS).map(key => (
               <button
                 key={key}
-                className="preset-chip"
+                className="preset-card-btn"
                 onClick={() => loadScenario(key)}
               >
-                {key}
+                <span>{key.slice(0, 2)}</span> {key.slice(3)}
               </button>
             ))}
           </div>
 
-          <div className="scanner-grid">
-            {/* Input Form & Drag/Drop */}
-            <div className="glass-card">
-              <div className="card-heading">
-                <span>✉️ Email &amp; File Ingestion</span>
+          <div className="scanner-layout">
+            {/* Left: Input & Dropzone */}
+            <div className="glass-panel">
+              <div className="panel-header">
+                <div className="panel-title">
+                  <span>✉️</span> Message &amp; File Ingestion
+                </div>
               </div>
 
-              {/* Drag and Drop Zone with Browse Files Button */}
+              {/* Drag and Drop Zone */}
               <div
-                className={`dropzone ${isDragOver ? 'dragover' : ''}`}
+                className={`drop-zone ${isDragOver ? 'active' : ''}`}
                 onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
                 onDragLeave={() => setIsDragOver(false)}
                 onDrop={e => {
@@ -462,198 +502,236 @@ export default function Home() {
                 }}
                 onClick={() => fileInputRef.current?.click()}
               >
-                <div className="dropzone-icon">📂</div>
-                <div className="dropzone-text">
-                  <strong>Click to Browse Files</strong> or drag &amp; drop here
-                </div>
-                <div className="dropzone-sub">
-                  Supports .eml messages, PDFs, Office docs (.docm/.xlsm), executables, scripts (.bat/.ps1), and archives
+                <span className="drop-icon">📂</span>
+                <div className="drop-title">Browse Files or Drag &amp; Drop Here</div>
+                <div className="drop-hint">
+                  Drop .eml messages to auto-parse, or upload files (.pdf, .exe, .docm, .zip, .bat) for malware analysis
                 </div>
                 <input
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  className="file-input-hidden"
+                  style={{ display: 'none' }}
                   onChange={e => handleFileUpload(e.target.files)}
                 />
               </div>
 
-              {/* Uploaded Attachments List */}
+              {/* Uploaded Attachments */}
               {attachments.length > 0 && (
-                <div className="attachment-list">
+                <div style={{ marginBottom: '18px' }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    ATTACHED ARTIFACTS ({attachments.length})
+                  </div>
                   {attachments.map((att, idx) => (
-                    <div key={idx} className="attachment-pill">
-                      <div className="attachment-pill-info">
-                        <span>📎 <strong>{att.name}</strong></span>
-                        <span style={{ color: 'var(--text-muted)' }}>({att.size} MB)</span>
-                        <span style={{
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          fontSize: '0.75rem',
-                          background: att.risk_score >= 70 ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)',
-                          color: att.risk_score >= 70 ? '#fca5a5' : '#6ee7b7'
-                        }}>
+                    <div key={idx} className="attachment-card">
+                      <div className="att-left">
+                        <span>📎</span>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{att.name}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            {att.size} MB • Entropy: {att.entropy}/8.0
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span className={`att-badge ${att.risk_score >= 70 ? 'malicious' : 'clean'}`}>
                           {att.classification} ({att.risk_score}/100)
                         </span>
+                        <button className="btn-del" onClick={() => removeAttachment(idx)}>✕</button>
                       </div>
-                      <button className="btn-remove-att" onClick={() => removeAttachment(idx)}>✕</button>
                     </div>
                   ))}
                 </div>
               )}
 
-              <div className="field">
-                <label>Sender Address (From:)</label>
+              <div className="input-group">
+                <div className="input-label">
+                  <span>Sender Address (From:)</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Header Origin</span>
+                </div>
                 <input
                   type="text"
+                  className="text-input"
                   placeholder="e.g. security@alert-verify-chase.com"
                   value={sender}
                   onChange={e => setSender(e.target.value)}
                 />
               </div>
 
-              <div className="field">
-                <label>Subject Line</label>
+              <div className="input-group">
+                <div className="input-label">
+                  <span>Subject Line</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>RFC822 Subject</span>
+                </div>
                 <input
                   type="text"
+                  className="text-input"
                   placeholder="e.g. URGENT: Unauthorized Account Access Detected"
                   value={subject}
                   onChange={e => setSubject(e.target.value)}
                 />
               </div>
 
-              <div className="field">
-                <label>Email Body Content</label>
+              <div className="input-group">
+                <div className="input-label">
+                  <span>Message Body Content</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Plaintext / HTML</span>
+                </div>
                 <textarea
-                  rows={9}
-                  placeholder="Paste raw email text or headers..."
+                  rows={8}
+                  className="textarea-input"
+                  placeholder="Paste email body text or headers..."
                   value={body}
                   onChange={e => setBody(e.target.value)}
                 />
               </div>
 
               <button
-                className="btn-primary"
+                className="btn-scan"
                 onClick={executeAnalysis}
                 disabled={loading}
               >
-                {loading ? '⏳ EXECUTING THREAT SCAN...' : '🚀 EXECUTE THREAT ANALYSIS'}
+                <span>🚀</span> {loading ? 'ANALYZING THREAT VECTORS...' : 'EXECUTE THREAT ANALYSIS'}
               </button>
             </div>
 
-            {/* Live Results Panel */}
-            <div className="glass-card">
-              <div className="card-heading">
-                <span>🎯 Assessment Results</span>
+            {/* Right: Live Assessment */}
+            <div className="glass-panel">
+              <div className="panel-header">
+                <div className="panel-title">
+                  <span>🎯</span> Threat Assessment
+                </div>
+                {result?.engine && (
+                  <span style={{
+                    fontSize: '0.75rem',
+                    background: 'rgba(56, 189, 248, 0.15)',
+                    color: '#38bdf8',
+                    padding: '3px 10px',
+                    borderRadius: '999px',
+                    border: '1px solid rgba(56, 189, 248, 0.3)'
+                  }}>
+                    {result.engine}
+                  </span>
+                )}
               </div>
 
               {loading && (
-                <div style={{ textAlign: 'center', padding: '60px 0' }}>
-                  <div className="pulse-dot" style={{ width: '20px', height: '20px', margin: '0 auto 16px' }} />
-                  <p style={{ color: '#38bdf8', fontWeight: 600 }}>Analyzing vectors &amp; heuristic patterns...</p>
+                <div style={{ textAlign: 'center', padding: '70px 20px' }}>
+                  <div className="beacon" style={{ width: '22px', height: '22px', margin: '0 auto 20px' }}></div>
+                  <div style={{ color: '#38bdf8', fontWeight: 700, fontSize: '1.05rem', marginBottom: '8px' }}>
+                    Scanning In Progress
+                  </div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', fontFamily: 'JetBrains Mono' }}>
+                    {scanningPhase}
+                  </div>
                 </div>
               )}
 
               {error && !loading && (
                 <div style={{
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  padding: '16px',
-                  borderRadius: '10px',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  padding: '18px',
+                  borderRadius: '12px',
                   color: '#fca5a5'
                 }}>
-                  <strong>⚠️ Analysis Error:</strong> {error}
+                  <strong>⚠️ Analysis Exception:</strong> {error}
                 </div>
               )}
 
               {!loading && !result && !error && (
-                <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
-                  <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🛡️</div>
-                  <h4 style={{ color: 'var(--text-secondary)', marginBottom: '8px' }}>Sentinel Ready</h4>
-                  <p style={{ fontSize: '0.9rem' }}>
-                    Select a 1-click test scenario above or paste an email to generate a SOC threat assessment.
+                <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '3.5rem', marginBottom: '14px', opacity: 0.8 }}>🛡️</div>
+                  <h4 style={{ color: 'var(--text-primary)', marginBottom: '8px', fontSize: '1.15rem' }}>
+                    Dual-Guard Sentinel Ready
+                  </h4>
+                  <p style={{ fontSize: '0.92rem', maxWidth: '340px', margin: '0 auto', lineHeight: 1.6 }}>
+                    Select a 1-click test scenario above or drop an email to generate a multi-factor threat assessment.
                   </p>
                 </div>
               )}
 
               {result && !loading && (
                 <>
-                  {/* Top Verdict Banner */}
-                  <div className={`verdict-banner ${result.risk_score >= 70 ? 'danger' : result.risk_score >= 40 ? 'warning' : 'success'}`}>
+                  {/* Verdict Banner */}
+                  <div className={`verdict-box ${result.risk_score >= 70 ? 'danger' : result.risk_score >= 40 ? 'warning' : 'safe'}`}>
                     <div>
-                      <h3 style={{ margin: 0 }}>
-                        {result.risk_score >= 70 ? '🚨 THREAT DETECTED: ' : result.risk_score >= 40 ? '⚠️ SUSPICIOUS EMAIL: ' : '🛡️ VERIFIED: '}
+                      <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>
+                        DEFENSE STATUS
+                      </div>
+                      <h3 style={{ margin: 0, fontSize: '1.25rem' }}>
+                        {result.risk_score >= 70 ? '🚨 ' : result.risk_score >= 40 ? '⚠️ ' : '🛡️ '}
                         {result.classification.toUpperCase()}
                       </h3>
-                      <p style={{ margin: '4px 0 0 0', fontSize: '0.88rem' }}>
+                      <p style={{ margin: '6px 0 0 0', fontSize: '0.85rem', opacity: 0.9 }}>
                         {result.risk_score >= 70
                           ? 'Immediate quarantine & sender domain block recommended.'
                           : result.risk_score >= 40
-                          ? 'Anomalous indicators detected. Exercise caution.'
+                          ? 'Suspicious social-engineering patterns detected.'
                           : 'No deceptive vectors or credential harvesting patterns detected.'}
                       </p>
                     </div>
                   </div>
 
-                  {/* Radial Speedometer Gauge */}
-                  <div className="gauge-container">
-                    <svg className="gauge-svg" viewBox="0 0 200 120">
-                      {/* Outer Arc Track */}
-                      <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="18" strokeLinecap="round" />
-                      {/* Green Safe Zone */}
-                      <path d="M 20 100 A 80 80 0 0 1 73 34" fill="none" stroke="rgba(16, 185, 129, 0.3)" strokeWidth="18" />
-                      {/* Amber Warning Zone */}
-                      <path d="M 73 34 A 80 80 0 0 1 127 34" fill="none" stroke="rgba(245, 158, 11, 0.3)" strokeWidth="18" />
-                      {/* Red Danger Zone */}
-                      <path d="M 127 34 A 80 80 0 0 1 180 100" fill="none" stroke="rgba(239, 68, 68, 0.3)" strokeWidth="18" />
+                  {/* Speedometer Radial Gauge */}
+                  <div className="gauge-wrapper">
+                    <svg className="gauge-svg" viewBox="0 0 220 130">
+                      {/* Background Arc */}
+                      <path d="M 25 110 A 85 85 0 0 1 195 110" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="18" strokeLinecap="round" />
+                      {/* Green Zone (0-40) */}
+                      <path d="M 25 110 A 85 85 0 0 1 82 40" fill="none" stroke="rgba(16, 185, 129, 0.35)" strokeWidth="18" />
+                      {/* Amber Zone (40-70) */}
+                      <path d="M 82 40 A 85 85 0 0 1 138 40" fill="none" stroke="rgba(245, 158, 11, 0.35)" strokeWidth="18" />
+                      {/* Red Zone (70-100) */}
+                      <path d="M 138 40 A 85 85 0 0 1 195 110" fill="none" stroke="rgba(239, 68, 68, 0.35)" strokeWidth="18" />
                       
                       {/* Needle */}
                       {(() => {
                         const angle = -180 + (result.risk_score / 100) * 180;
                         const rad = (angle * Math.PI) / 180;
-                        const x = 100 + 65 * Math.cos(rad);
-                        const y = 100 + 65 * Math.sin(rad);
+                        const x = 110 + 70 * Math.cos(rad);
+                        const y = 110 + 70 * Math.sin(rad);
                         const color = result.risk_score >= 70 ? '#ef4444' : result.risk_score >= 40 ? '#f59e0b' : '#10b981';
                         return (
                           <>
-                            <line x1="100" y1="100" x2={x} y2={y} stroke={color} strokeWidth="4" strokeLinecap="round" />
-                            <circle cx="100" cy="100" r="7" fill="#ffffff" />
-                            <circle cx="100" cy="100" r="4" fill={color} />
+                            <line x1="110" y1="110" x2={x} y2={y} stroke={color} strokeWidth="4.5" strokeLinecap="round" />
+                            <circle cx="110" cy="110" r="8" fill="#ffffff" />
+                            <circle cx="110" cy="110" r="4.5" fill={color} />
                           </>
                         );
                       })()}
 
-                      <text x="100" y="80" className="gauge-score-text">{result.risk_score}</text>
-                      <text x="100" y="98" fill="var(--text-muted)" fontSize="11" textAnchor="middle">/ 100 THREAT SCORE</text>
+                      <text x="110" y="88" className="gauge-score">{result.risk_score}</text>
+                      <text x="110" y="108" className="gauge-subtitle">/ 100 THREAT SCORE</text>
                     </svg>
                   </div>
 
                   {/* Red Flags Chips */}
                   {result.red_flags && result.red_flags.length > 0 && (
-                    <div style={{ marginTop: '16px' }}>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                        🚩 DETECTED THREAT INDICATORS:
+                    <div style={{ marginTop: '12px' }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Identified Attack Vectors ({result.red_flags.length})
                       </div>
-                      <div className="flags-grid">
+                      <div className="flags-cluster">
                         {result.red_flags.map((flag, i) => (
-                          <div key={i} className="flag-badge">
-                            ⚠️ {flag}
+                          <div key={i} className="flag-chip">
+                            <span>⚠️</span> {flag}
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  {/* Explanation */}
+                  {/* Analytical Explanation */}
                   <div style={{
                     background: 'rgba(30, 41, 59, 0.5)',
                     border: '1px solid var(--border)',
-                    borderRadius: '10px',
-                    padding: '14px',
-                    fontSize: '0.9rem',
-                    lineHeight: 1.6,
+                    borderRadius: '12px',
+                    padding: '16px',
+                    fontSize: '0.92rem',
+                    lineHeight: 1.65,
                     color: '#e2e8f0',
-                    margin: '16px 0'
+                    margin: '18px 0'
                   }}>
                     {result.explanation}
                   </div>
@@ -661,32 +739,32 @@ export default function Home() {
                   {/* Attachment Deep-Dive Cards */}
                   {result.attachmentsAnalyzed && result.attachmentsAnalyzed.length > 0 && (
                     <div style={{ marginTop: '16px' }}>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                        📎 ATTACHMENT MALWARE INSPECTION:
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+                        Payload Static Heuristics
                       </div>
                       {result.attachmentsAnalyzed.map((att, i) => (
                         <div key={i} style={{
-                          background: 'rgba(15, 23, 42, 0.9)',
-                          border: '1px solid var(--border)',
-                          borderRadius: '10px',
-                          padding: '12px 16px',
-                          marginBottom: '8px'
+                          background: 'rgba(15, 23, 42, 0.95)',
+                          border: `1px solid ${att.risk_score >= 70 ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`,
+                          borderRadius: '12px',
+                          padding: '14px 18px',
+                          marginBottom: '10px'
                         }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                            <strong>📄 {att.name}</strong>
+                            <strong style={{ fontSize: '0.95rem' }}>📄 {att.name}</strong>
                             <span style={{
                               color: att.risk_score >= 70 ? '#f87171' : '#34d399',
-                              fontWeight: 700,
+                              fontWeight: 800,
                               fontFamily: 'JetBrains Mono',
-                              fontSize: '0.9rem'
+                              fontSize: '0.95rem'
                             }}>
                               {att.classification} ({att.risk_score}/100)
                             </span>
                           </div>
-                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono' }}>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono' }}>
                             SHA-256: {att.hash}
                           </div>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                             Entropy: {att.entropy}/8.0 • Size: {att.size} MB • MIME: {att.type}
                           </div>
                         </div>
@@ -694,21 +772,23 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Terminal SOC Incident Report */}
+                  {/* SOC Incident Report Terminal */}
                   {result.soc_report && (
-                    <div className="terminal-window">
-                      <div className="terminal-header">
-                        <div className="terminal-dots">
-                          <span className="dot red"></span>
-                          <span className="dot yellow"></span>
-                          <span className="dot green"></span>
+                    <div className="terminal-card">
+                      <div className="terminal-bar">
+                        <div className="traffic-dots">
+                          <span className="t-dot red"></span>
+                          <span className="t-dot yellow"></span>
+                          <span className="t-dot green"></span>
                         </div>
-                        <span className="terminal-title">SOC-INCIDENT-INVESTIGATION.log</span>
-                        <button className="copy-btn" onClick={copySocReport}>
+                        <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          SOC-INCIDENT-LOG.txt
+                        </span>
+                        <button className="btn-copy" onClick={copySocReport}>
                           {copied ? '✓ Copied' : '📋 Copy Log'}
                         </button>
                       </div>
-                      <div className="terminal-body">{result.soc_report}</div>
+                      <div className="terminal-content">{result.soc_report}</div>
                     </div>
                   )}
                 </>
@@ -718,57 +798,58 @@ export default function Home() {
         </>
       )}
 
-      {/* ── TAB 2: ATTACHMENT & MALWARE LAB ── */}
+      {/* ── TAB 2: ATTACHMENT LAB ── */}
       {activeTab === 'lab' && (
-        <div className="glass-card">
-          <div className="card-heading">
-            <span>🔬 Standalone Attachment &amp; Binary Malware Sandbox</span>
+        <div className="glass-panel">
+          <div className="panel-header">
+            <div className="panel-title">
+              <span>🔬</span> Standalone Binary &amp; Attachment Sandbox
+            </div>
           </div>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '20px' }}>
-            Directly inspect any document, script, or binary file. Computes client-side cryptographic SHA-256 checksums, Shannon entropy (randomness), and extension spoofing vectors.
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.98rem', marginBottom: '22px' }}>
+            Perform deep static malware triage on any standalone file. Computes client-side cryptographic SHA-256 checksums, Shannon entropy (randomness), and extension spoofing vectors.
           </p>
 
           <div
-            className="dropzone"
+            className="drop-zone"
             onClick={() => labInputRef.current?.click()}
           >
-            <div className="dropzone-icon">🧪</div>
-            <div className="dropzone-text">
-              <strong>Click to Browse Files for Sandbox Inspection</strong>
-            </div>
-            <div className="dropzone-sub">
-              Drag &amp; drop any executable (.exe), script (.bat, .ps1, .vbs), macro document (.docm), or archive (.zip)
+            <span className="drop-icon">🧪</span>
+            <div className="drop-title">Browse or Drop Files into Malware Sandbox</div>
+            <div className="drop-hint">
+              Supports .exe, .scr, .bat, .vbs, .ps1, .docm, .xlsm, .pdf, and archives
             </div>
             <input
               ref={labInputRef}
               type="file"
               multiple
-              className="file-input-hidden"
+              style={{ display: 'none' }}
               onChange={e => handleLabUpload(e.target.files)}
             />
           </div>
 
           {labFiles.length > 0 && (
-            <div style={{ marginTop: '24px' }}>
-              <h4 style={{ marginBottom: '14px', color: 'var(--text-primary)' }}>
-                Analyzed Payload Artifacts ({labFiles.length})
-              </h4>
+            <div style={{ marginTop: '28px' }}>
+              <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '16px' }}>
+                Triage Artifacts ({labFiles.length})
+              </div>
               {labFiles.map((file, idx) => (
                 <div
                   key={idx}
                   style={{
-                    background: 'rgba(15, 23, 42, 0.85)',
-                    border: `1px solid ${file.risk_score >= 70 ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`,
-                    borderRadius: '12px',
-                    padding: '18px 20px',
-                    marginBottom: '14px'
+                    background: 'rgba(15, 23, 42, 0.9)',
+                    border: `1px solid ${file.risk_score >= 70 ? 'rgba(239,68,68,0.45)' : 'var(--border)'}`,
+                    borderRadius: '14px',
+                    padding: '20px 24px',
+                    marginBottom: '16px',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.3)'
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>📄 {file.name}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>📄 {file.name}</div>
                     <div style={{
                       fontFamily: 'JetBrains Mono',
-                      fontSize: '1.1rem',
+                      fontSize: '1.15rem',
                       fontWeight: 800,
                       color: file.risk_score >= 70 ? '#f87171' : file.risk_score >= 40 ? '#fbbf24' : '#34d399'
                     }}>
@@ -776,39 +857,39 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', margin: '12px 0' }}>
-                    <div style={{ background: 'rgba(30,41,59,0.5)', padding: '8px 12px', borderRadius: '8px' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>FILE SIZE</span>
-                      <div style={{ fontWeight: 600 }}>{file.size} MB</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', margin: '14px 0' }}>
+                    <div style={{ background: 'rgba(30,41,59,0.5)', padding: '10px 14px', borderRadius: '10px' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>PAYLOAD SIZE</span>
+                      <div style={{ fontWeight: 700, fontSize: '1rem' }}>{file.size} MB</div>
                     </div>
-                    <div style={{ background: 'rgba(30,41,59,0.5)', padding: '8px 12px', borderRadius: '8px' }}>
+                    <div style={{ background: 'rgba(30,41,59,0.5)', padding: '10px 14px', borderRadius: '10px' }}>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>SHANNON ENTROPY</span>
-                      <div style={{ fontWeight: 600, color: file.entropy > 7 ? '#f87171' : '#38bdf8' }}>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', color: file.entropy > 7 ? '#f87171' : '#38bdf8' }}>
                         {file.entropy} / 8.0
                       </div>
                     </div>
-                    <div style={{ background: 'rgba(30,41,59,0.5)', padding: '8px 12px', borderRadius: '8px' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>MIME TYPE</span>
-                      <div style={{ fontWeight: 600 }}>{file.type}</div>
+                    <div style={{ background: 'rgba(30,41,59,0.5)', padding: '10px 14px', borderRadius: '10px' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>DETECTED MIME</span>
+                      <div style={{ fontWeight: 700, fontSize: '1rem' }}>{file.type}</div>
                     </div>
                   </div>
 
-                  <div style={{ fontFamily: 'JetBrains Mono', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  <div style={{ fontFamily: 'JetBrains Mono', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>
                     SHA-256: <code>{file.hash}</code>
                   </div>
 
                   {file.risk_indicators && file.risk_indicators.length > 0 ? (
                     <div>
-                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#fca5a5' }}>Threat Signatures:</span>
-                      <ul style={{ margin: '4px 0 0 20px', fontSize: '0.85rem', color: '#fca5a5' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#fca5a5' }}>Threat Signatures:</span>
+                      <ul style={{ margin: '6px 0 0 22px', fontSize: '0.88rem', color: '#fca5a5' }}>
                         {file.risk_indicators.map((ind, i) => (
                           <li key={i}>{ind}</li>
                         ))}
                       </ul>
                     </div>
                   ) : (
-                    <div style={{ color: '#34d399', fontSize: '0.85rem' }}>
-                      ✅ No dangerous executable headers or macro triggers identified.
+                    <div style={{ color: '#34d399', fontSize: '0.88rem', fontWeight: 600 }}>
+                      ✅ No dangerous executable headers, obfuscated packing, or macro triggers detected.
                     </div>
                   )}
                 </div>
@@ -818,68 +899,63 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── TAB 3: ATTACK VECTOR SCENARIOS ── */}
+      {/* ── TAB 3: ATTACK SCENARIOS ── */}
       {activeTab === 'scenarios' && (
-        <div className="glass-card">
-          <div className="card-heading">
-            <span>⚡ Interactive Attack Vectors &amp; Benchmark Scenarios</span>
+        <div className="glass-panel">
+          <div className="panel-header">
+            <div className="panel-title">
+              <span>⚡</span> Attack Vectors &amp; Threat Scenarios
+            </div>
           </div>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '20px' }}>
-            Test PhishNet AI with verified real-world attack campaigns and legitimate baselines. Click any card to load it directly into the scanner.
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.98rem', marginBottom: '24px' }}>
+            Explore real-world phishing methodologies used in active cyber campaigns. Click any scenario to test the detection engine.
           </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+          <div className="scenarios-grid">
             {Object.entries(PRESET_SCENARIOS).map(([title, item]) => (
-              <div
-                key={title}
-                style={{
-                  background: 'rgba(15, 23, 42, 0.85)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '12px',
-                  padding: '20px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between'
-                }}
-              >
+              <div key={title} className="scenario-box">
                 <div>
-                  <h4 style={{ color: 'var(--text-primary)', marginBottom: '8px' }}>{title}</h4>
-                  <p style={{ fontSize: '0.82rem', color: '#38bdf8', marginBottom: '6px' }}>
-                    <strong>From:</strong> {item.sender}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <span style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: '999px',
+                      background: item.severity === 'Critical' ? 'rgba(239,68,68,0.2)' : item.severity === 'High' ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)',
+                      color: item.severity === 'Critical' ? '#f87171' : item.severity === 'High' ? '#fbbf24' : '#34d399',
+                      border: `1px solid ${item.severity === 'Critical' ? 'rgba(239,68,68,0.3)' : item.severity === 'High' ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.3)'}`
+                    }}>
+                      {item.tag}
+                    </span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{item.severity}</span>
+                  </div>
+
+                  <h4 style={{ color: 'var(--text-primary)', fontSize: '1.1rem', marginBottom: '6px' }}>{title}</h4>
+                  <p style={{ fontSize: '0.85rem', color: '#38bdf8', marginBottom: '8px' }}>
+                    <strong>Origin:</strong> {item.sender}
                   </p>
-                  <p style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                  <p style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '12px' }}>
                     {item.subject}
                   </p>
                   <p style={{
-                    fontSize: '0.8rem',
+                    fontSize: '0.82rem',
                     color: 'var(--text-muted)',
-                    lineHeight: 1.5,
-                    maxHeight: '100px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
+                    lineHeight: 1.55,
+                    maxHeight: '90px',
+                    overflow: 'hidden'
                   }}>
                     {item.body.slice(0, 160)}...
                   </p>
                 </div>
 
                 <button
-                  style={{
-                    marginTop: '16px',
-                    background: 'rgba(56, 189, 248, 0.15)',
-                    border: '1px solid rgba(56, 189, 248, 0.3)',
-                    color: '#38bdf8',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                    fontSize: '0.85rem'
-                  }}
+                  className="btn-load-scenario"
                   onClick={() => {
                     loadScenario(title);
                     setActiveTab('scanner');
                   }}
                 >
-                  📥 Load into Scanner
+                  📥 Load Into Scanner
                 </button>
               </div>
             ))}
@@ -887,25 +963,25 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── TAB 4: SOC AUDIT LOG & ANALYTICS ── */}
+      {/* ── TAB 4: SOC AUDIT LOG ── */}
       {activeTab === 'history' && (
-        <div className="glass-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <div className="card-heading" style={{ margin: 0 }}>
-              <span>📊 Threat Intelligence History &amp; Audit Trail</span>
+        <div className="glass-panel">
+          <div className="panel-header">
+            <div className="panel-title">
+              <span>📊</span> Threat Intelligence History &amp; Incident Log
             </div>
             {history.length > 0 && (
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '10px' }}>
                 <button
-                  className="copy-btn"
-                  style={{ padding: '8px 14px', fontSize: '0.85rem' }}
+                  className="btn-copy"
+                  style={{ padding: '8px 16px', fontSize: '0.85rem' }}
                   onClick={downloadAuditJson}
                 >
-                  💾 Download Audit Report (JSON)
+                  💾 Download Incident Report (JSON)
                 </button>
                 <button
-                  className="copy-btn"
-                  style={{ padding: '8px 14px', fontSize: '0.85rem', color: '#f87171' }}
+                  className="btn-copy"
+                  style={{ padding: '8px 16px', fontSize: '0.85rem', color: '#f87171' }}
                   onClick={() => setHistory([])}
                 >
                   🗑️ Clear Log
@@ -915,17 +991,24 @@ export default function Home() {
           </div>
 
           {history.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-              No threat scans recorded in this session. Run an analysis in the scanner to build an audit trail.
+            <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--text-muted)' }}>
+              No threat scans recorded in this session. Run an analysis in the scanner to build an incident trail.
             </div>
           ) : (
-            <div className="history-grid">
+            <div className="scenarios-grid">
               {history.map((item, idx) => {
                 const isP = item.classification === 'Phishing Email';
                 return (
                   <div
                     key={idx}
-                    className={`history-card ${isP ? 'danger' : 'success'}`}
+                    style={{
+                      background: 'rgba(15, 23, 42, 0.9)',
+                      border: `1px solid ${isP ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.3)'}`,
+                      borderRadius: '14px',
+                      padding: '18px 20px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
                     onClick={() => {
                       setResult(item);
                       setActiveTab('scanner');
@@ -934,26 +1017,27 @@ export default function Home() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <span style={{
                         fontSize: '0.75rem',
-                        fontWeight: 700,
-                        padding: '3px 8px',
-                        borderRadius: '4px',
+                        fontWeight: 800,
+                        padding: '3px 9px',
+                        borderRadius: '6px',
                         background: isP ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)',
                         color: isP ? '#f87171' : '#34d399'
                       }}>
-                        {isP ? '🎣 PHISHING' : '✅ SAFE'}
+                        {isP ? '🎣 PHISHING' : '✅ LEGITIMATE'}
                       </span>
                       <span style={{
                         fontFamily: 'JetBrains Mono',
-                        fontWeight: 700,
+                        fontWeight: 800,
+                        fontSize: '1rem',
                         color: isP ? '#f87171' : '#34d399'
                       }}>
                         {item.risk_score}/100
                       </span>
                     </div>
-                    <div style={{ fontWeight: 600, fontSize: '0.92rem', marginBottom: '4px' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '6px', color: '#f8fafc' }}>
                       {item.subject}
                     </div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
                       <span>{item.sender}</span>
                       <span>{item.time}</span>
                     </div>
@@ -966,7 +1050,7 @@ export default function Home() {
       )}
 
       {/* ── FOOTER ── */}
-      <div className="footer">
+      <div className="footer-text">
         PhishNet AI • Autonomous Cybersecurity Threat Intelligence Platform • Streamlit &amp; Next.js Dual Engine
       </div>
     </div>
