@@ -1,4 +1,4 @@
-# 🚀 Quick Run Commands for Phishing Detector
+# 🚀 Quick Run Commands for PhishNet AI
 
 ## Important: Create .env file first!
 
@@ -14,7 +14,7 @@ EMERGENT_LLM_KEY=sk-emergent-d69D0D4BfD065E6E83
 python -m pip install emergentintegrations --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
 
 # Step 2: Install other dependencies
-python -m pip install streamlit python-dotenv
+python -m pip install streamlit python-dotenv plotly pandas
 
 # Step 3: Run the application
 python -m streamlit run phishing_detector.py
@@ -37,7 +37,7 @@ source .venv/bin/activate
 
 # Then install and run:
 python -m pip install emergentintegrations --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
-python -m pip install streamlit python-dotenv
+python -m pip install streamlit python-dotenv plotly pandas
 python -m streamlit run phishing_detector.py
 ```
 

@@ -9,12 +9,11 @@ export async function POST(request) {
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return Response.json({ error: 'GEMINI_API_KEY not configured. Please add it in Vercel environment variables.' }, { status: 500 });
-    }
+    const emergentKey = process.env.EMERGENT_LLM_KEY;
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    if (!apiKey && !emergentKey) {
+      return Response.json({ error: 'AI API Key not configured. Please add GEMINI_API_KEY or EMERGENT_LLM_KEY in Vercel environment variables.' }, { status: 500 });
+    }
 
     const prompt = `You are an expert cybersecurity analyst specializing in phishing email detection. Analyze the following email and provide a comprehensive security assessment.
 
@@ -46,13 +45,49 @@ Consider these phishing indicators:
 
 Return ONLY the JSON object, nothing else.`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
+    let textResponse = '';
+
+    if (emergentKey) {
+      // Use Emergent LLM (Claude Sonnet) via its proxy
+      const response = await fetch('https://llm-api.emergent-integrations.com/v1/chat', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${emergentKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          session_id: `phishing_analysis_${Date.now()}`,
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5-20250929',
+          system_message: 'You are an expert cybersecurity analyst. Provide accurate, detailed phishing detection analysis.',
+          messages: [
+            {
+              role: 'user',
+              content: prompt
+            }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Emergent LLM API failed: ${response.status} ${errText}`);
+      }
+
+      const data = await response.json();
+      textResponse = data.response.trim();
+    } else {
+      // Use Google Gemini API
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const result = await model.generateContent(prompt);
+      textResponse = result.response.text().trim();
+    }
 
     let parsed;
     try {
       // Strip markdown code fences if present
-      let clean = text;
+      let clean = textResponse;
       if (clean.startsWith('```')) {
         clean = clean.replace(/```json\n?/, '').replace(/```\n?$/, '').trim();
       }
@@ -62,7 +97,7 @@ Return ONLY the JSON object, nothing else.`;
         classification: 'Analysis Error',
         risk_score: 50,
         red_flags: ['Could not parse AI response'],
-        explanation: text,
+        explanation: textResponse,
         soc_report: 'Error generating structured report.',
       };
     }
@@ -73,3 +108,4 @@ Return ONLY the JSON object, nothing else.`;
     return Response.json({ error: error.message || 'Analysis failed' }, { status: 500 });
   }
 }
+
